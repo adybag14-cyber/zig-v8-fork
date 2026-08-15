@@ -538,7 +538,7 @@ fn buildV8(
         args_hash = args_hash *% 33 +% c;
     }
     const out_dir = b.fmt("out/{s}/{s}_{x}", .{ @tagName(target.result.os.tag), if (gn_args.is_debug) "debug" else "release", args_hash });
-    const libc_v8_path = b.fmt("{s}/obj/zig/libc_v8.a", .{out_dir});
+    const libc_v8_path = b.fmt("{s}/obj/zig/{s}", .{ out_dir, if (target.result.os.tag == .windows) "c_v8.lib" else "libc_v8.a" });
     const full_libc_v8_lazy_path = v8_dir_lazy_path.path(b, libc_v8_path);
 
     // Bootstrap marker is shared across profiles, so compare staged sources
