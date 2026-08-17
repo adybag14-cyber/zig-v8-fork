@@ -112,13 +112,6 @@ pub fn build(b: *std.Build) !void {
     };
 
     const prebuilt_v8_path = b.option([]const u8, "prebuilt_v8_path", "Path to a prebuilt libc_v8.a or libc_v8.so");
-    // depot_tools is only required when V8 is built from source. Keep it
-    // genuinely lazy so prebuilt Windows builds do not unpack POSIX symlinks.
-    const depot_tools = if (prebuilt_v8_path == null)
-        b.lazyDependency("depot_tools", .{}) orelse return
-    else
-        null;
-
     const v8_dir = b.fmt("{s}/v8-{s}", .{ cache_root, V8_VERSION });
     const depot_tools_dir = b.fmt("{s}/depot_tools-{s}", .{ cache_root, V8_VERSION });
 
@@ -150,7 +143,7 @@ pub fn build(b: *std.Build) !void {
                 null,
         };
     } else blk: {
-        const bootstrapped_depot_tools = try bootstrapDepotTools(b, depot_tools.?, depot_tools_dir);
+        const bootstrapped_depot_tools = try bootstrapDepotTools(b, depot_tools_dir);
         const bootstrapped_v8 = try bootstrapV8(b, bootstrapped_depot_tools, v8_dir, depot_tools_dir);
 
         const prepare_step = b.step("prepare-v8", "Prepare V8 source code");
@@ -246,7 +239,7 @@ const V8BootstrapResult = struct {
     needs_build: bool,
 };
 
-fn bootstrapDepotTools(b: *std.Build, depot_tools: *std.Build.Dependency, depot_tools_dir: []const u8) !*std.Build.Step {
+fn bootstrapDepotTools(b: *std.Build, depot_tools_dir: []const u8) !*std.Build.Step {
     const io = b.graph.io;
     const marker_file = b.fmt("{s}/.bootstrap-complete", .{depot_tools_dir});
 
@@ -263,9 +256,27 @@ fn bootstrapDepotTools(b: *std.Build, depot_tools: *std.Build.Dependency, depot_
 
     std.debug.print("Bootstrapping depot_tools {s} in {s} (this will take a while)...\n", .{ V8_VERSION, depot_tools_dir });
 
-    const copy_depot_tools = b.addSystemCommand(&.{ "cp", "-r" });
-    copy_depot_tools.addDirectoryArg(depot_tools.path(""));
-    copy_depot_tools.addArg(depot_tools_dir);
+    // Do not model depot_tools as a Zig package dependency. Its archive contains
+    // POSIX symlinks which Zig's Windows package materializer cannot create on
+    // ordinary accounts, even for builds that use a prebuilt V8 and never need
+    // depot_tools. Source builds clone the exact snapshot on demand instead.
+    const clone_depot_tools = b.addSystemCommand(&.{
+        "git",
+        "clone",
+        "--no-checkout",
+        "--filter=blob:none",
+        "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+        depot_tools_dir,
+    });
+    const checkout_depot_tools = b.addSystemCommand(&.{
+        "git",
+        "-C",
+        depot_tools_dir,
+        "checkout",
+        "--detach",
+        "4ce8ba39a3488397a2d1494f167020f21de502f3",
+    });
+    checkout_depot_tools.step.dependOn(&clone_depot_tools.step);
 
     const build_telemetry_config_content =
         \\ {
@@ -293,7 +304,7 @@ fn bootstrapDepotTools(b: *std.Build, depot_tools: *std.Build.Dependency, depot_
         }));
         break :blk cmd;
     };
-    write_telemetry_config.step.dependOn(&copy_depot_tools.step);
+    write_telemetry_config.step.dependOn(&checkout_depot_tools.step);
 
     const ensure_bootstrap = if (builtin.os.tag == .windows)
         b.addSystemCommand(&.{
