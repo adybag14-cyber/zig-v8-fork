@@ -7,6 +7,7 @@
         .depot_tools = .{
             .url = "https://pkg.lightpanda.io/chromium/depot_tools.git-4ce8ba39a3488397a2d1494f167020f21de502f3.tar.gz",
             .hash = "N-V-__8AABDOXwDW4TLrTiydikRCN2ym9hJI1GKGR09ZLBvY",
+            .lazy = true,
         },
     },
     .paths = .{
