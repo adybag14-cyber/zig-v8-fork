@@ -112,6 +112,12 @@ pub fn build(b: *std.Build) !void {
     };
 
     const prebuilt_v8_path = b.option([]const u8, "prebuilt_v8_path", "Path to a prebuilt libc_v8.a or libc_v8.so");
+    // depot_tools is only required when V8 is built from source. Keep it
+    // genuinely lazy so prebuilt Windows builds do not unpack POSIX symlinks.
+    const depot_tools = if (prebuilt_v8_path == null)
+        b.lazyDependency("depot_tools", .{}) orelse return
+    else
+        null;
 
     const v8_dir = b.fmt("{s}/v8-{s}", .{ cache_root, V8_VERSION });
     const depot_tools_dir = b.fmt("{s}/depot_tools-{s}", .{ cache_root, V8_VERSION });
@@ -144,7 +150,7 @@ pub fn build(b: *std.Build) !void {
                 null,
         };
     } else blk: {
-        const bootstrapped_depot_tools = try bootstrapDepotTools(b, depot_tools_dir);
+        const bootstrapped_depot_tools = try bootstrapDepotTools(b, depot_tools.?, depot_tools_dir);
         const bootstrapped_v8 = try bootstrapV8(b, bootstrapped_depot_tools, v8_dir, depot_tools_dir);
 
         const prepare_step = b.step("prepare-v8", "Prepare V8 source code");
@@ -240,9 +246,8 @@ const V8BootstrapResult = struct {
     needs_build: bool,
 };
 
-fn bootstrapDepotTools(b: *std.Build, depot_tools_dir: []const u8) !*std.Build.Step {
+fn bootstrapDepotTools(b: *std.Build, depot_tools: *std.Build.Dependency, depot_tools_dir: []const u8) !*std.Build.Step {
     const io = b.graph.io;
-    const depot_tools = b.dependency("depot_tools", .{});
     const marker_file = b.fmt("{s}/.bootstrap-complete", .{depot_tools_dir});
 
     const needs_full_bootstrap = blk: {
